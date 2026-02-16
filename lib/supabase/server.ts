@@ -2,10 +2,20 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+type CookieOptions = {
+  domain?: string;
+  path?: string;
+  maxAge?: number;
+  expires?: Date;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "lax" | "strict" | "none";
+};
+
 type CookieToSet = {
   name: string;
   value: string;
-  options?: Record<string, unknown>;
+  options?: CookieOptions;
 };
 
 export function createClient() {
@@ -25,9 +35,8 @@ export function createClient() {
       },
       setAll(cookiesToSet: CookieToSet[]) {
         cookiesToSet.forEach(({ name, value, options }) => {
-          // next/headers cookieStore.set expects a compatible options object.
-          // We keep it loosely typed to avoid version/type mismatches.
-          cookieStore.set(name, value, options as any);
+          // Next's cookieStore.set accepts a compatible options shape.
+          cookieStore.set(name, value, options);
         });
       },
     },
