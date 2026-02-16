@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FeedbackV2 } from "@/lib/schemas";
+import { lintPrompt, type LintIssue } from "@/lib/linter";
 
 type Attempt = {
   id: string;
@@ -15,14 +16,61 @@ type EvaluateResponse =
   | { ok: true; attemptId: string; feedback: FeedbackV2 }
   | { ok: false; error: string; details?: string };
 
-export function LabEvaluator({ labId, attempts }: { labId: string; attempts: Attempt[] }) {
+export function LabEvaluator({
+  labId,
+  labTitle,
+  scenario,
+  rubric,
+  attempts
+}: {
+  labId: string;
+  labTitle: string;
+  scenario: unknown;
+  rubric: unknown;
+  attempts: Attempt[];
+}) {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackV2 | null>(attempts[0]?.feedback_json ?? null);
   const [history, setHistory] = useState<Attempt[]>(attempts);
+  const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
+  const [lintStats, setLintStats] = useState({ length: 0, hasJson: false, hasBullets: false });
 
   const latestScore = useMemo(() => feedback?.score_total ?? null, [feedback]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const lintResult = lintPrompt({
+        labTitle,
+        scenario,
+        rubric,
+        userPrompt: prompt
+      });
+      setLintIssues(lintResult.issues);
+      setLintStats(lintResult.stats);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [labTitle, prompt, rubric, scenario]);
+
+  const lintCounts = useMemo(
+    () => ({
+      error: lintIssues.filter((issue) => issue.severity === "error").length,
+      warn: lintIssues.filter((issue) => issue.severity === "warn").length,
+      info: lintIssues.filter((issue) => issue.severity === "info").length
+    }),
+    [lintIssues]
+  );
+
+  const groupedIssues = useMemo(
+    () => ({
+      error: lintIssues.filter((issue) => issue.severity === "error"),
+      warn: lintIssues.filter((issue) => issue.severity === "warn"),
+      info: lintIssues.filter((issue) => issue.severity === "info")
+    }),
+    [lintIssues]
+  );
 
   async function runEvaluation() {
     setLoading(true);
@@ -75,8 +123,41 @@ export function LabEvaluator({ labId, attempts }: { labId: string; attempts: Att
         Prompt
         <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={10} />
       </label>
+
+      <div className="card" style={{ marginTop: "1rem", marginBottom: "1rem" }}>
+        <h3 style={{ marginBottom: "0.5rem" }}>Lint</h3>
+        <p style={{ marginBottom: "0.5rem" }}>
+          Errors: <strong>{lintCounts.error}</strong> · Warnings: <strong>{lintCounts.warn}</strong> · Info: <strong>{lintCounts.info}</strong>
+        </p>
+        <p style={{ marginBottom: "0.5rem", color: "#6b7280" }}>Fix errors to run grading. Warnings are optional.</p>
+        <p style={{ marginBottom: "0.75rem", color: "#6b7280" }}>
+          Length: {lintStats.length} · JSON detected: {lintStats.hasJson ? "yes" : "no"} · Bullets detected: {lintStats.hasBullets ? "yes" : "no"}
+        </p>
+
+        {(["error", "warn", "info"] as const).map((severity) => (
+          <div key={severity} style={{ marginBottom: "0.5rem" }}>
+            <h4 style={{ textTransform: "capitalize", marginBottom: "0.25rem" }}>{severity}</h4>
+            {groupedIssues[severity].length === 0 ? (
+              <p style={{ color: "#6b7280" }}>No {severity} issues.</p>
+            ) : (
+              <ul>
+                {groupedIssues[severity].map((issue, index) => (
+                  <li key={`${issue.code}-${index}`} style={{ marginBottom: "0.5rem" }}>
+                    <strong>{issue.title}</strong>
+                    <p>{issue.message}</p>
+                    <p>
+                      <strong>Fix:</strong> {issue.fix}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}>
-        <button type="button" onClick={runEvaluation} disabled={loading || prompt.trim().length === 0}>
+        <button type="button" onClick={runEvaluation} disabled={loading || prompt.trim().length === 0 || lintCounts.error > 0}>
           {loading ? "Evaluating..." : "Evaluate"}
         </button>
         <button type="button" onClick={() => feedback?.rewrite && setPrompt(feedback.rewrite)} disabled={!feedback?.rewrite}>
@@ -157,7 +238,7 @@ export function LabEvaluator({ labId, attempts }: { labId: string; attempts: Att
             <ul>
               {feedback.checklist.map((item, index) => (
                 <li key={`${item.item}-${index}`}>
-                  {item.item} {" "}
+                  {item.item}{" "}
                   <span
                     style={{
                       borderRadius: "999px",

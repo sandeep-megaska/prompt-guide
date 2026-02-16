@@ -61,7 +61,7 @@ export default async function LabDetailPage({ params }: { params: { labId: strin
         <h2>Rubric</h2>
         <pre>{JSON.stringify(lab.rubric_json, null, 2)}</pre>
       </div>
-      <LabEvaluator labId={lab.id} attempts={attempts} />
+      <LabEvaluator labId={lab.id} labTitle={lab.title} scenario={lab.scenario_json} rubric={lab.rubric_json} attempts={attempts} />
     </section>
   );
 }
