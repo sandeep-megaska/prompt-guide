@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FeedbackV2 } from "@/lib/schemas";
 import { lintPrompt, type LintIssue } from "@/lib/linter";
+import { getLabTemplate } from "@/lib/promptTemplates";
+import { getFixActions } from "@/lib/autofix";
 
 type Attempt = {
   id: string;
@@ -36,6 +38,7 @@ export function LabEvaluator({
   const [history, setHistory] = useState<Attempt[]>(attempts);
   const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
   const [lintStats, setLintStats] = useState({ length: 0, hasJson: false, hasBullets: false });
+  const promptInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const latestScore = useMemo(() => feedback?.score_total ?? null, [feedback]);
 
@@ -71,6 +74,48 @@ export function LabEvaluator({
     }),
     [lintIssues]
   );
+
+  const fixActionMap = useMemo(() => {
+    return new Map(getFixActions(labTitle, rubric).map((action) => [action.code, action]));
+  }, [labTitle, rubric]);
+
+  function insertWithCursor(textToInsert: string) {
+    const promptInput = promptInputRef.current;
+
+    if (!promptInput) {
+      setPrompt((prev) => (prev.trim().length === 0 ? textToInsert : `${prev}\n\n${textToInsert}`));
+      return;
+    }
+
+    const selectionStart = promptInput.selectionStart ?? prompt.length;
+    const selectionEnd = promptInput.selectionEnd ?? prompt.length;
+    const before = prompt.slice(0, selectionStart);
+    const after = prompt.slice(selectionEnd);
+    const spacerBefore = before.endsWith("\n") || before.length === 0 ? "" : "\n\n";
+    const spacerAfter = after.startsWith("\n") || after.length === 0 ? "" : "\n\n";
+    const nextPrompt = `${before}${spacerBefore}${textToInsert}${spacerAfter}${after}`;
+
+    setPrompt(nextPrompt);
+  }
+
+  function insertTemplate() {
+    const template = getLabTemplate(labTitle, rubric);
+    if (prompt.trim().length === 0) {
+      setPrompt(template);
+      return;
+    }
+
+    insertWithCursor(template);
+  }
+
+  function applyFix(issue: LintIssue) {
+    const primaryAction = issue.actions?.[0];
+    if (!primaryAction) return;
+
+    const fixer = fixActionMap.get(primaryAction.code);
+    if (!fixer) return;
+    setPrompt((prev) => fixer.apply(prev));
+  }
 
   async function runEvaluation() {
     setLoading(true);
@@ -121,8 +166,14 @@ export function LabEvaluator({
       <h2>Try your prompt</h2>
       <label>
         Prompt
-        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={10} />
+        <textarea ref={promptInputRef} value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={10} />
       </label>
+
+      <div style={{ marginTop: "0.5rem", marginBottom: "0.75rem" }}>
+        <button type="button" onClick={insertTemplate}>
+          Insert Template
+        </button>
+      </div>
 
       <div className="card" style={{ marginTop: "1rem", marginBottom: "1rem" }}>
         <h3 style={{ marginBottom: "0.5rem" }}>Lint</h3>
@@ -148,6 +199,11 @@ export function LabEvaluator({
                     <p>
                       <strong>Fix:</strong> {issue.fix}
                     </p>
+                    {issue.actions?.length ? (
+                      <button type="button" onClick={() => applyFix(issue)} style={{ marginTop: "0.25rem" }}>
+                        Apply fix
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>

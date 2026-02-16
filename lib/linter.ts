@@ -6,6 +6,7 @@ export type LintIssue = {
   title: string;
   message: string;
   fix: string;
+  actions?: Array<{ label: string; code: string }>;
 };
 
 type LintConfig = {
@@ -28,6 +29,13 @@ const DEFAULT_LINT_CONFIG: LintConfig = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function withAction(issue: Omit<LintIssue, "actions">): LintIssue {
+  return {
+    ...issue,
+    actions: [{ label: "Apply fix", code: issue.code }]
+  };
 }
 
 function parseLintConfig(rubric: unknown, labTitle: string): LintConfig {
@@ -99,18 +107,20 @@ export function lintPrompt(args: {
   const issues: LintIssue[] = [];
 
   if (trimmedPrompt.length < config.min_length) {
-    issues.push({
-      code: "length_min",
-      severity: "error",
-      title: "Prompt too short",
-      message: `Your prompt is ${trimmedPrompt.length} characters; minimum is ${config.min_length}.`,
-      fix: "Add task details, constraints, and expected output format to reach a usable level of specificity."
-    });
+    issues.push(
+      withAction({
+        code: "PROMPT_TOO_SHORT",
+        severity: "error",
+        title: "Prompt too short",
+        message: `Your prompt is ${trimmedPrompt.length} characters; minimum is ${config.min_length}.`,
+        fix: "Add task details, constraints, and expected output format to reach a usable level of specificity."
+      })
+    );
   }
 
   if (trimmedPrompt.length > config.max_length) {
     issues.push({
-      code: "length_max",
+      code: "PROMPT_TOO_LONG",
       severity: "error",
       title: "Prompt too long",
       message: `Your prompt is ${trimmedPrompt.length} characters; maximum is ${config.max_length}.`,
@@ -118,24 +128,18 @@ export function lintPrompt(args: {
     });
   }
 
-  const taskVerbPatterns = [
-    /\bwrite\b/i,
-    /\bgenerate\b/i,
-    /\bsummarize\b/i,
-    /\bextract\b/i,
-    /\bclassify\b/i,
-    /\banalyze\b/i,
-    /\bdesign\b/i
-  ];
+  const taskVerbPatterns = [/\bwrite\b/i, /\bgenerate\b/i, /\bsummarize\b/i, /\bextract\b/i, /\bclassify\b/i, /\banalyze\b/i, /\bdesign\b/i];
 
   if (!includesAny(trimmedPrompt, taskVerbPatterns)) {
-    issues.push({
-      code: "goal_missing",
-      severity: "error",
-      title: "Goal is unclear",
-      message: "No explicit task verb was found, so the model's objective may be ambiguous.",
-      fix: "Add a clear line such as: 'Your task: summarize the transcript into 5 bullet points.'"
-    });
+    issues.push(
+      withAction({
+        code: "GOAL_UNCLEAR",
+        severity: "error",
+        title: "Goal is unclear",
+        message: "No explicit task verb was found, so the model's objective may be ambiguous.",
+        fix: "Add a clear line such as: 'Your task: summarize the transcript into 5 bullet points.'"
+      })
+    );
   }
 
   const constraintPatterns = [/\bmust\b/i, /\bdo not\b/i, /\bavoid\b/i, /\blimit\b/i, /\bonly\b/i, /\bat most\b/i, /\bexactly\b/i];
@@ -143,13 +147,15 @@ export function lintPrompt(args: {
   const isConstraintsLab = labTitle.toLowerCase().includes("constraints");
 
   if (!hasConstraints) {
-    issues.push({
-      code: "constraints_missing",
-      severity: isConstraintsLab ? "error" : "warn",
-      title: "Constraints are missing",
-      message: "No clear constraint markers were found.",
-      fix: "Add enforceable limits, for example: 'Use at most 5 bullets' and 'Do not include speculation.'"
-    });
+    issues.push(
+      withAction({
+        code: "CONSTRAINTS_MISSING",
+        severity: isConstraintsLab ? "error" : "warn",
+        title: "Constraints are missing",
+        message: "No clear constraint markers were found.",
+        fix: "Add enforceable limits, for example: 'Use at most 5 bullets' and 'Do not include speculation.'"
+      })
+    );
   }
 
   const outputFormatPatterns = [/\breturn\b/i, /\bformat\b/i, /\bjson\b/i, /\btable\b/i, /\bbullet\b/i, /\bsteps\b/i];
@@ -157,29 +163,33 @@ export function lintPrompt(args: {
   const isStructuredOutputLab = labTitle.toLowerCase().includes("structured output");
 
   if (!hasOutputFormatHints) {
-    issues.push({
-      code: "output_format_missing",
-      severity: isStructuredOutputLab ? "error" : "warn",
-      title: "Output format not specified",
-      message: "The prompt does not clearly define how the answer should be formatted.",
-      fix: "Specify an exact format, such as bullets, numbered steps, table columns, or JSON keys."
-    });
+    issues.push(
+      withAction({
+        code: "OUTPUT_FORMAT_MISSING",
+        severity: isStructuredOutputLab ? "error" : "warn",
+        title: "Output format not specified",
+        message: "The prompt does not clearly define how the answer should be formatted.",
+        fix: "Specify an exact format, such as bullets, numbered steps, table columns, or JSON keys."
+      })
+    );
   }
 
   if (config.require_json_output && !hasJson) {
-    issues.push({
-      code: "json_required",
-      severity: "error",
-      title: "JSON output requirement not met",
-      message: "This lab requires explicit JSON instructions with a schema-like example.",
-      fix: "Add 'Return valid JSON only' and include a JSON skeleton like {\"field\": \"value\"}."
-    });
+    issues.push(
+      withAction({
+        code: "JSON_REQUIRED",
+        severity: "error",
+        title: "JSON output requirement not met",
+        message: "This lab requires explicit JSON instructions with a schema-like example.",
+        fix: "Add 'Return valid JSON only' and include a JSON skeleton like {\"field\": \"value\"}."
+      })
+    );
   }
 
   const hasExampleSection = /\bexample\b/i.test(trimmedPrompt) || (/\binput\s*:/i.test(trimmedPrompt) && /\boutput\s*:/i.test(trimmedPrompt));
   if (config.require_examples && !hasExampleSection) {
     issues.push({
-      code: "examples_required",
+      code: "EXAMPLES_REQUIRED",
       severity: "error",
       title: "Examples required",
       message: "This lab expects at least one clear example pair.",
@@ -188,21 +198,24 @@ export function lintPrompt(args: {
   }
 
   const selfCheckRequired = config.required.includes("self_check");
-  const hasSelfCheck = /\bchecklist\b/i.test(trimmedPrompt) || /\bverify\b/i.test(trimmedPrompt) || /\bdouble-check\b/i.test(trimmedPrompt) || /\bvalidate\b/i.test(trimmedPrompt);
+  const hasSelfCheck =
+    /\bchecklist\b/i.test(trimmedPrompt) || /\bverify\b/i.test(trimmedPrompt) || /\bdouble-check\b/i.test(trimmedPrompt) || /\bvalidate\b/i.test(trimmedPrompt);
   if (selfCheckRequired && !hasSelfCheck) {
-    issues.push({
-      code: "self_check_required",
-      severity: "error",
-      title: "Self-check step missing",
-      message: "This lab requires an explicit verification step before final output.",
-      fix: "Add: 'Before final answer, verify against this checklist: ...'"
-    });
+    issues.push(
+      withAction({
+        code: "SELF_CHECK_MISSING",
+        severity: "error",
+        title: "Self-check step missing",
+        message: "This lab requires an explicit verification step before final output.",
+        fix: "Add: 'Before final answer, verify against this checklist: ...'"
+      })
+    );
   }
 
   const matchingBannedPhrases = config.banned_phrases.filter((phrase) => loweredPrompt.includes(phrase.toLowerCase()));
   for (const phrase of matchingBannedPhrases) {
     issues.push({
-      code: "banned_phrase",
+      code: "BANNED_PHRASE",
       severity: "error",
       title: "Unsafe or banned phrase detected",
       message: `The prompt contains banned phrase: "${phrase}".`,
@@ -212,13 +225,15 @@ export function lintPrompt(args: {
 
   const hasRole = /\byou are\s+(an?|the)\b/i.test(trimmedPrompt) || /\bact as\b/i.test(trimmedPrompt);
   if (!hasRole) {
-    issues.push({
-      code: "role_missing",
-      severity: "info",
-      title: "Role framing could help",
-      message: "No explicit audience/role framing detected.",
-      fix: "Consider adding a role, e.g. 'You are a data analyst writing for a product manager.'"
-    });
+    issues.push(
+      withAction({
+        code: "ROLE_MISSING",
+        severity: "info",
+        title: "Role framing could help",
+        message: "No explicit audience/role framing detected.",
+        fix: "Consider adding a role, e.g. 'You are a data analyst writing for a product manager.'"
+      })
+    );
   }
 
   const ok = !issues.some((issue) => issue.severity === "error");
