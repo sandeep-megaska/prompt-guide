@@ -14,11 +14,11 @@ export function createClient() {
         },
        import type { CookieOptions } from "@supabase/ssr";
 
-type CookieToSet = { name: string; value: string; options?: CookieOptions };
+type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
 
 setAll(cookiesToSet: CookieToSet[]) {
   cookiesToSet.forEach(({ name, value, options }) => {
-    cookieStore.set(name, value, options);
+    cookieStore.set(name, value, options as any);
   });
 },
 
