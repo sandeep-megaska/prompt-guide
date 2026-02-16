@@ -12,11 +12,16 @@ export function createClient() {
         getAll() {
           return cookieStore.getAll();
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
-        }
+       import type { CookieOptions } from "@supabase/ssr";
+
+type CookieToSet = { name: string; value: string; options?: CookieOptions };
+
+setAll(cookiesToSet: CookieToSet[]) {
+  cookiesToSet.forEach(({ name, value, options }) => {
+    cookieStore.set(name, value, options);
+  });
+},
+
       }
     }
   );
